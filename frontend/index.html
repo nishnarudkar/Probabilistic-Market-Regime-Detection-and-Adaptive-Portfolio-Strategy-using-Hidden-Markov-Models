@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Market Regime Monitor</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Advanced ML: Market Regime Monitor</h1>
+            <p>Hidden Markov Model (HMM) automated risk management system.</p>
+        </header>
+
+        <div class="upload-section">
+            <input type="file" id="csvFileInput" accept=".csv">
+            <button id="analyzeBtn">Analyze Market Data</button>
+        </div>
+        
+        <div id="statusIndicator" class="status-box">Awaiting Data Upload...</div>
+        <div id="chart"></div>
+    </div>
+    <script src="js/script.js" defer></script>
+</body>
+</html>
