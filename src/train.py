@@ -1,7 +1,10 @@
 import warnings
 warnings.filterwarnings('ignore')
 
+import json
 import os
+import logging
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,214 +12,222 @@ import seaborn as sns
 import joblib
 from sklearn.preprocessing import StandardScaler
 from hmmlearn.hmm import GaussianHMM
-import matplotlib.dates as mdates
 
-# ==========================================
-# 1. SETUP DIRECTORIES
-# ==========================================
-print("Setting up output directories...")
-os.makedirs("outputs/models", exist_ok=True)
-os.makedirs("outputs/figures", exist_ok=True)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
-# ==========================================
-# 2. DATA LOADING
-# ==========================================
-print("Loading processed data...")
-# Adjust this path if your CSV is in a different location
-data = pd.read_csv("data/processed_market_data.csv")
-data["Date"] = pd.to_datetime(data["Date"])
-data = data.sort_values("Date").reset_index(drop=True)
+FEATURES = ["returns", "volatility", "RSI", "momentum", "VIX"]
+DATA_PATH = "data/processed_market_data.csv"
+MODELS_DIR = "outputs/models"
+FIGURES_DIR = "outputs/figures"
 
-# Initial S&P 500 Price Plot
-plt.figure(figsize=(14,6))
-plt.plot(data["Date"], data["Close"])
-plt.title("S&P 500 Price Over Time")
-plt.xlabel("Date")
-plt.ylabel("Price")
-plt.grid(True)
-plt.savefig("outputs/figures/SP500_Price_over_the_years.png", bbox_inches='tight')
-plt.close()
 
-# ==========================================
-# 3. FEATURE SELECTION & SPLIT
-# ==========================================
-print("Scaling features and splitting data...")
-features = ["returns", "volatility", "RSI", "momentum", "VIX"]
+# ── 1. Setup ──────────────────────────────────────────────────────────────────
 
-# 80/20 train/test split to prevent look-ahead bias
-split_idx = int(len(data) * 0.8)
-train_data = data.iloc[:split_idx]
-test_data = data.iloc[split_idx:]
+def setup_dirs():
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    logger.info("Output directories ready.")
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(train_data[features])
-X_all_scaled = scaler.transform(data[features]) 
 
-# ==========================================
-# 4. MODEL SELECTION (AIC / BIC)
-# ==========================================
-print("Evaluating HMM components using AIC/BIC...")
-n_components_range = range(2, 7)
-aic_scores = []
-bic_scores = []
+# ── 2. Data Loading ───────────────────────────────────────────────────────────
 
-for n in n_components_range:
-    model = GaussianHMM(n_components=n, covariance_type="full", n_iter=1000, random_state=42)
-    model.fit(X_train_scaled) 
-    
-    log_likelihood = model.score(X_train_scaled)
-    n_params = n**2 + 2*n*X_train_scaled.shape[1] - 1
-    
-    aic = -2 * log_likelihood + 2 * n_params
-    bic = -2 * log_likelihood + n_params * np.log(len(X_train_scaled))
-    
-    aic_scores.append(aic)
-    bic_scores.append(bic)
+def load_data(path: str) -> pd.DataFrame:
+    logger.info(f"Loading data from {path}")
+    data = pd.read_csv(path)
+    data["Date"] = pd.to_datetime(data["Date"])
+    data = data.sort_values("Date").reset_index(drop=True)
+    logger.info(f"Loaded {len(data)} rows from {data['Date'].min().date()} to {data['Date'].max().date()}")
+    return data
 
-# Plot AIC/BIC
-plt.figure(figsize=(8,5))
-plt.plot(n_components_range, aic_scores, label="AIC")
-plt.plot(n_components_range, bic_scores, label="BIC")
-plt.xlabel("Number of Regimes")
-plt.ylabel("Score")
-plt.title("Model Selection using AIC/BIC")
-plt.grid(True)
-plt.legend()
-plt.savefig("outputs/figures/Model_selection_using_AICbyBIC.png", bbox_inches='tight')
-plt.close()
 
-best_n = n_components_range[np.argmin(bic_scores)]
-print(f"Optimal number of regimes selected: {best_n}")
+# ── 3. Feature Scaling & Split ────────────────────────────────────────────────
 
-# ==========================================
-# 5. FINAL TRAINING & EXPORT
-# ==========================================
-print("Training final model and saving artifacts...")
-final_model = GaussianHMM(n_components=best_n, covariance_type="full", n_iter=1000, random_state=42)
-final_model.fit(X_train_scaled)
+def scale_and_split(data: pd.DataFrame):
+    split_idx = int(len(data) * 0.8)
+    train_data = data.iloc[:split_idx]
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(train_data[FEATURES])
+    X_all_scaled = scaler.transform(data[FEATURES])
+    logger.info(f"Train size: {len(train_data)}, Test size: {len(data) - len(train_data)}")
+    return scaler, X_train_scaled, X_all_scaled
 
-# Save the trained model and scaler for the FastAPI backend
-joblib.dump(final_model, 'outputs/models/hmm_model.pkl')
-joblib.dump(scaler, 'outputs/models/scaler.pkl')
 
-# Predict hidden states for the entire timeline
-data["Regime"] = final_model.predict(X_all_scaled)
+# ── 4. Model Selection via AIC/BIC ────────────────────────────────────────────
 
-# ==========================================
-# 6. VISUALIZATIONS & PLOTS
-# ==========================================
-print("Generating and saving analysis plots...")
+def select_n_components(X_train_scaled: np.ndarray) -> int:
+    logger.info("Evaluating HMM components using AIC/BIC...")
+    n_range = range(2, 7)
+    aic_scores, bic_scores = [], []
 
-# Average VIX by Regime
-data.groupby("Regime")["VIX"].mean().plot(kind="bar", figsize=(8,5))
-plt.title("Average VIX by Market Regime")
-plt.xlabel("Regime")
-plt.ylabel("Average VIX")
-plt.grid(True)
-plt.savefig("outputs/figures/Average_vix_by_market.png", bbox_inches='tight')
-plt.close()
+    for n in n_range:
+        m = GaussianHMM(n_components=n, covariance_type="full", n_iter=1000, random_state=42)
+        m.fit(X_train_scaled)
+        log_likelihood = m.score(X_train_scaled)
+        n_params = n ** 2 + 2 * n * X_train_scaled.shape[1] - 1
+        aic_scores.append(-2 * log_likelihood + 2 * n_params)
+        bic_scores.append(-2 * log_likelihood + n_params * np.log(len(X_train_scaled)))
 
-# Market Regime Timeline Overlay (Scatter)
-plt.figure(figsize=(14,6))
-for i in range(final_model.n_components):
-    state = data["Regime"] == i
-    plt.scatter(data["Date"][state], data["Close"][state], label=f"Regime {i}", s=10)
-plt.title("Market Regimes Detected by HMM")
-plt.xlabel("Date")
-plt.ylabel("S&P 500 Price")
-plt.legend()
-plt.grid(True)
-plt.savefig("outputs/figures/regime_overlay_plot.png", bbox_inches='tight')
-plt.close()
+    plt.figure(figsize=(8, 5))
+    plt.plot(n_range, aic_scores, label="AIC")
+    plt.plot(n_range, bic_scores, label="BIC")
+    plt.xlabel("Number of Regimes")
+    plt.ylabel("Score")
+    plt.title("Model Selection using AIC/BIC")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(f"{FIGURES_DIR}/Model_selection_using_AICbyBIC.png", bbox_inches='tight')
+    plt.close()
 
-# Transition Matrix Heatmap
-plt.figure(figsize=(6,5))
-sns.heatmap(final_model.transmat_, annot=True, cmap="Blues")
-plt.title("HMM State Transition Matrix")
-plt.xlabel("Next State")
-plt.ylabel("Current State")
-plt.savefig("outputs/figures/transition_matrix.png", bbox_inches='tight')
-plt.close()
+    best_n = list(n_range)[int(np.argmin(bic_scores))]
+    logger.info(f"Optimal number of regimes: {best_n}")
+    return best_n
 
-# Volatility vs Returns Space
-plt.figure(figsize=(14,6))
-plt.scatter(data["volatility"], data["returns"], c=data["Regime"], cmap="viridis")
-plt.xlabel("Volatility")
-plt.ylabel("Returns")
-plt.title("Market Regimes in Return-Volatility Space")
-plt.colorbar(label="Regime")
-plt.savefig("outputs/figures/Volatility_vs_Regime_plot.png", bbox_inches='tight')
-plt.close()
 
-# Timeline Fill Plot
-fig, ax = plt.subplots(figsize=(15,6))
-ax.plot(data["Date"], data["Close"], color="black")
-for regime in np.unique(data["Regime"]):
-    mask = data["Regime"] == regime
-    ax.fill_between(data["Date"], data["Close"].min(), data["Close"].max(), 
-                    where=mask, alpha=0.2, label=f"Regime {regime}")
-ax.set_title("HMM Market Regime Detection Timeline")
-ax.set_xlabel("Date")
-ax.set_ylabel("S&P 500")
-ax.legend()
-plt.savefig("outputs/figures/Market_regime_timeline.png", bbox_inches='tight')
-plt.close()
+# ── 5. Train & Save ───────────────────────────────────────────────────────────
 
-# RSI Boxplot
-plt.figure(figsize=(10,6))
-sns.boxplot(x="Regime", y="RSI", data=data)
-plt.title("RSI Distribution Across Market Regimes")
-plt.savefig("outputs/figures/RSI_Distribution_across_market_regimes.png", bbox_inches='tight')
-plt.close()
+def train_and_save(X_train_scaled: np.ndarray, scaler: StandardScaler, best_n: int, data: pd.DataFrame) -> GaussianHMM:
+    logger.info(f"Training final HMM with {best_n} components...")
+    final_model = GaussianHMM(n_components=best_n, covariance_type="full", n_iter=1000, random_state=42)
+    final_model.fit(X_train_scaled)
+    joblib.dump(final_model, f"{MODELS_DIR}/hmm_model.pkl")
+    joblib.dump(scaler, f"{MODELS_DIR}/scaler.pkl")
 
-# ==========================================
-# 7. REGIME-AWARE TRADING STRATEGY
-# ==========================================
-print("Backtesting regime-aware strategy...")
+    # Save metadata
+    metadata = {
+        "trained_at":      datetime.utcnow().isoformat() + "Z",
+        "n_components":    best_n,
+        "covariance_type": "full",
+        "dataset_rows":    len(data),
+        "date_range":      f"{data['Date'].min().date()} to {data['Date'].max().date()}",
+        "features":        FEATURES,
+        "train_split":     "80/20",
+    }
+    with open(f"{MODELS_DIR}/model_metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
 
-# Dynamically map regimes based on risk (Average VIX)
-regime_risk = data.groupby("Regime")["VIX"].mean().sort_values()
-safe_regimes = regime_risk.head(3).index.tolist()
+    logger.info(f"Artifacts + metadata saved to {MODELS_DIR}/")
+    return final_model
 
-# Generate signals: 1 for safe regimes, 0 for high-risk
-data["signal"] = 0
-data.loc[data["Regime"].isin(safe_regimes), "signal"] = 1
 
-# Calculate returns (shifted to avoid look-ahead bias)
-data["strategy_returns"] = data["signal"].shift(1) * data["returns"]
+# ── 6. Visualizations ─────────────────────────────────────────────────────────
 
-data["market_cum"] = (1 + data["returns"]).cumprod()
-data["strategy_cum"] = (1 + data["strategy_returns"]).cumprod()
+def generate_plots(data: pd.DataFrame, model: GaussianHMM):
+    logger.info("Generating analysis plots...")
 
-# Plot Strategy vs Buy & Hold
-plt.figure(figsize=(14,6))
-plt.plot(data["Date"], data["market_cum"], label="Buy & Hold (Market)")
-plt.plot(data["Date"], data["strategy_cum"], label="HMM Regime Strategy")
-plt.title("HMM Regime-Based Trading Strategy vs. Buy & Hold")
-plt.xlabel("Date")
-plt.ylabel("Cumulative Returns")
-plt.legend()
-plt.grid(True)
-plt.savefig("outputs/figures/HMM_Regime_Based_Trading_Strategy.png", bbox_inches='tight')
-plt.close()
+    # S&P 500 price history
+    plt.figure(figsize=(14, 6))
+    plt.plot(data["Date"], data["Close"])
+    plt.title("S&P 500 Price Over Time")
+    plt.xlabel("Date"); plt.ylabel("Price"); plt.grid(True)
+    plt.savefig(f"{FIGURES_DIR}/SP500_Price_over_the_years.png", bbox_inches='tight')
+    plt.close()
 
-# Drawdown Visualization
-cum_market = (1 + data["returns"]).cumprod()
-cum_strategy = (1 + data["strategy_returns"]).cumprod()
+    # Average VIX by regime
+    data.groupby("Regime")["VIX"].mean().plot(kind="bar", figsize=(8, 5))
+    plt.title("Average VIX by Market Regime")
+    plt.xlabel("Regime"); plt.ylabel("Average VIX"); plt.grid(True)
+    plt.savefig(f"{FIGURES_DIR}/Average_vix_by_market.png", bbox_inches='tight')
+    plt.close()
 
-market_drawdown = cum_market / cum_market.cummax() - 1
-strategy_drawdown = cum_strategy / cum_strategy.cummax() - 1
+    # Regime overlay scatter
+    plt.figure(figsize=(14, 6))
+    for i in range(model.n_components):
+        state = data["Regime"] == i
+        plt.scatter(data["Date"][state], data["Close"][state], label=f"Regime {i}", s=10)
+    plt.title("Market Regimes Detected by HMM")
+    plt.xlabel("Date"); plt.ylabel("S&P 500 Price"); plt.legend(); plt.grid(True)
+    plt.savefig(f"{FIGURES_DIR}/regime_overlay_plot.png", bbox_inches='tight')
+    plt.close()
 
-plt.figure(figsize=(14,6))
-plt.plot(data["Date"], market_drawdown, label="Market Drawdown", alpha=0.7)
-plt.plot(data["Date"], strategy_drawdown, label="Strategy Drawdown", alpha=0.9)
-plt.title("Drawdown Comparison: Strategy vs. Market")
-plt.ylabel("Drawdown")
-plt.legend()
-plt.grid(True)
-plt.savefig("outputs/figures/Drawdown_comparison.png", bbox_inches='tight')
-plt.close()
+    # Transition matrix heatmap
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(model.transmat_, annot=True, cmap="Blues")
+    plt.title("HMM State Transition Matrix")
+    plt.xlabel("Next State"); plt.ylabel("Current State")
+    plt.savefig(f"{FIGURES_DIR}/transition_matrix.png", bbox_inches='tight')
+    plt.close()
 
-print("\n--- Training Pipeline Complete ---")
-print("Models saved to:  outputs/models/")
-print("Figures saved to: outputs/figures/")
+    # Volatility vs returns
+    plt.figure(figsize=(14, 6))
+    plt.scatter(data["volatility"], data["returns"], c=data["Regime"], cmap="viridis")
+    plt.xlabel("Volatility"); plt.ylabel("Returns")
+    plt.title("Market Regimes in Return-Volatility Space")
+    plt.colorbar(label="Regime")
+    plt.savefig(f"{FIGURES_DIR}/Volatility_vs_Regime_plot.png", bbox_inches='tight')
+    plt.close()
+
+    # Timeline fill plot
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.plot(data["Date"], data["Close"], color="black")
+    for regime in np.unique(data["Regime"]):
+        mask = data["Regime"] == regime
+        ax.fill_between(data["Date"], data["Close"].min(), data["Close"].max(),
+                        where=mask, alpha=0.2, label=f"Regime {regime}")
+    ax.set_title("HMM Market Regime Detection Timeline")
+    ax.set_xlabel("Date"); ax.set_ylabel("S&P 500"); ax.legend()
+    plt.savefig(f"{FIGURES_DIR}/Market_regime_timeline.png", bbox_inches='tight')
+    plt.close()
+
+    # RSI boxplot
+    plt.figure(figsize=(10, 6))
+    sns.boxplot(x="Regime", y="RSI", data=data)
+    plt.title("RSI Distribution Across Market Regimes")
+    plt.savefig(f"{FIGURES_DIR}/RSI_Distribution_across_market_regimes.png", bbox_inches='tight')
+    plt.close()
+
+    logger.info("All plots saved.")
+
+
+# ── 7. Backtest ───────────────────────────────────────────────────────────────
+
+def backtest(data: pd.DataFrame, model: GaussianHMM):
+    logger.info("Backtesting regime-aware strategy...")
+    regime_risk = data.groupby("Regime")["VIX"].mean().sort_values()
+    safe_regimes = regime_risk.head(max(1, model.n_components // 2 + 1)).index.tolist()
+
+    data["signal"] = 0
+    data.loc[data["Regime"].isin(safe_regimes), "signal"] = 1
+    data["strategy_returns"] = data["signal"].shift(1) * data["returns"]
+    data["market_cum"] = (1 + data["returns"]).cumprod()
+    data["strategy_cum"] = (1 + data["strategy_returns"]).cumprod()
+
+    # Strategy vs buy & hold
+    plt.figure(figsize=(14, 6))
+    plt.plot(data["Date"], data["market_cum"], label="Buy & Hold (Market)")
+    plt.plot(data["Date"], data["strategy_cum"], label="HMM Regime Strategy")
+    plt.title("HMM Regime-Based Trading Strategy vs. Buy & Hold")
+    plt.xlabel("Date"); plt.ylabel("Cumulative Returns"); plt.legend(); plt.grid(True)
+    plt.savefig(f"{FIGURES_DIR}/HMM_Regime_Based_Trading_Strategy.png", bbox_inches='tight')
+    plt.close()
+
+    # Drawdown
+    market_dd = data["market_cum"] / data["market_cum"].cummax() - 1
+    strategy_dd = data["strategy_cum"] / data["strategy_cum"].cummax() - 1
+    plt.figure(figsize=(14, 6))
+    plt.plot(data["Date"], market_dd, label="Market Drawdown", alpha=0.7)
+    plt.plot(data["Date"], strategy_dd, label="Strategy Drawdown", alpha=0.9)
+    plt.title("Drawdown Comparison: Strategy vs. Market")
+    plt.ylabel("Drawdown"); plt.legend(); plt.grid(True)
+    plt.savefig(f"{FIGURES_DIR}/Drawdown_comparison.png", bbox_inches='tight')
+    plt.close()
+
+    final_market = data["market_cum"].iloc[-1]
+    final_strategy = data["strategy_cum"].iloc[-1]
+    logger.info(f"Backtest complete. Market return: {final_market:.2f}x | Strategy return: {final_strategy:.2f}x")
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    setup_dirs()
+    data = load_data(DATA_PATH)
+    scaler, X_train_scaled, X_all_scaled = scale_and_split(data)
+    best_n = select_n_components(X_train_scaled)
+    final_model = train_and_save(X_train_scaled, scaler, best_n, data)
+    data["Regime"] = final_model.predict(X_all_scaled)
+    generate_plots(data, final_model)
+    backtest(data, final_model)
+    logger.info("--- Training Pipeline Complete ---")
+    logger.info(f"Models saved to: {MODELS_DIR}/")
+    logger.info(f"Figures saved to: {FIGURES_DIR}/")

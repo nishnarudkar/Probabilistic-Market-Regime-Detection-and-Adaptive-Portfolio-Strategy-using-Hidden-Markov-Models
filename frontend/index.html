@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,18 +10,139 @@
 <body>
     <div class="container">
         <header>
-            <h1>Advanced ML: Market Regime Monitor</h1>
-            <p>Hidden Markov Model (HMM) automated risk management system.</p>
+            <div class="header-top">
+                <div>
+                    <h1>Advanced ML: Market Regime Monitor</h1>
+                    <p>Hidden Markov Model (HMM) automated risk management system.</p>
+                    <p class="authors">
+                        Built by
+                        <a href="https://github.com/nishnarudkar" target="_blank" rel="noopener">Nishant Narudkar</a>,
+                        <a href="https://github.com/Aamir-Sarang31" target="_blank" rel="noopener">Aamir Sarang</a> &amp;
+                        <a href="https://github.com/Saksham-3175" target="_blank" rel="noopener">Saksham Shukla</a>
+                    </p>
+                </div>
+                <div class="header-actions">
+                    <button id="darkModeBtn" class="btn-icon" title="Toggle dark mode">🌙</button>
+                    <button id="modelInfoBtn" class="btn-secondary btn-sm">Model Info</button>
+                </div>
+            </div>
         </header>
 
-        <div class="upload-section">
-            <input type="file" id="csvFileInput" accept=".csv">
-            <button id="analyzeBtn">Analyze Market Data</button>
+        <!-- Model Info Panel -->
+        <div id="modelInfoPanel" class="info-panel hidden"></div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="csv">CSV Upload</button>
+            <button class="tab-btn" data-tab="manual">Manual Input</button>
         </div>
-        
-        <div id="statusIndicator" class="status-box">Awaiting Data Upload...</div>
+
+        <!-- Tab: CSV Upload -->
+        <div id="tab-csv" class="tab-content">
+            <div class="upload-section">
+                <input type="file" id="csvFileInput" accept=".csv">
+                <div class="days-control">
+                    <label for="daysInput">Days to display:</label>
+                    <input type="number" id="daysInput" value="250" min="30" max="2000">
+                </div>
+                <button id="analyzeBtn">Analyze Market Data</button>
+                <button id="resetBtn" class="btn-secondary">Reset</button>
+            </div>
+        </div>
+
+        <!-- Tab: Manual Input -->
+        <div id="tab-manual" class="tab-content hidden">
+            <div class="manual-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="f_returns">Returns</label>
+                        <input type="number" id="f_returns" step="0.0001" placeholder="e.g. 0.012">
+                        <span class="hint">Daily return (e.g. 0.012 = 1.2%)</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="f_volatility">Volatility</label>
+                        <input type="number" id="f_volatility" step="0.0001" placeholder="e.g. 0.015">
+                        <span class="hint">Rolling volatility</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="f_rsi">RSI</label>
+                        <input type="number" id="f_rsi" step="0.1" min="0" max="100" placeholder="e.g. 55">
+                        <span class="hint">Relative Strength Index (0–100)</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="f_momentum">Momentum</label>
+                        <input type="number" id="f_momentum" step="0.01" placeholder="e.g. 0.05">
+                        <span class="hint">Price momentum indicator</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="f_vix">VIX</label>
+                        <input type="number" id="f_vix" step="0.01" min="0" placeholder="e.g. 18.5">
+                        <span class="hint">CBOE Volatility Index</span>
+                    </div>
+                </div>
+                <div class="manual-actions">
+                    <button id="manualCheckBtn">Check Market Signal</button>
+                    <button id="loadDefaultsBtn" class="btn-secondary">Load Default Values</button>
+                </div>
+
+                <!-- What-if sliders -->
+                <div id="whatIfSection" class="whatif-section hidden">
+                    <h3>What-If Explorer</h3>
+                    <p class="hint">Adjust sliders to see how the signal changes in real time.</p>
+                    <div class="slider-grid">
+                        <div class="slider-group">
+                            <label>Returns: <span id="sl_returns_val">0.0012</span></label>
+                            <input type="range" id="sl_returns" min="-0.1" max="0.1" step="0.0001" value="0.0012">
+                        </div>
+                        <div class="slider-group">
+                            <label>Volatility: <span id="sl_volatility_val">0.0085</span></label>
+                            <input type="range" id="sl_volatility" min="0" max="0.1" step="0.0001" value="0.0085">
+                        </div>
+                        <div class="slider-group">
+                            <label>RSI: <span id="sl_rsi_val">58.4</span></label>
+                            <input type="range" id="sl_rsi" min="0" max="100" step="0.1" value="58.4">
+                        </div>
+                        <div class="slider-group">
+                            <label>Momentum: <span id="sl_momentum_val">0.032</span></label>
+                            <input type="range" id="sl_momentum" min="-0.5" max="0.5" step="0.001" value="0.032">
+                        </div>
+                        <div class="slider-group">
+                            <label>VIX: <span id="sl_vix_val">16.5</span></label>
+                            <input type="range" id="sl_vix" min="5" max="80" step="0.1" value="16.5">
+                        </div>
+                    </div>
+                    <div id="whatIfResult" class="whatif-result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared output -->
+        <div id="statusIndicator" class="status-box">Awaiting Data...</div>
+        <div id="lastAnalyzed" class="last-analyzed hidden"></div>
+        <div id="spinner" class="spinner hidden"></div>
+        <div id="regimeLegend" class="regime-legend hidden"></div>
+
+        <!-- Charts -->
         <div id="chart"></div>
+        <div id="vixChart"></div>
+
+        <!-- Export button (shown after CSV analysis) -->
+        <div id="exportBar" class="export-bar hidden">
+            <button id="exportPdfBtn" class="btn-secondary">⬇ Export Report as PDF</button>
+        </div>
+
+        <!-- Chart Interpretation -->
+        <div id="interpretation" class="interpretation hidden"></div>
+
+        <!-- Analysis Plots -->
+        <div id="plotsSection" class="plots-section hidden">
+            <h2>Training Analysis Plots</h2>
+            <div id="plotsGrid" class="plots-grid"></div>
+        </div>
     </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="js/script.js" defer></script>
 </body>
 </html>

@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./outputs:/app/outputs   # persist model artifacts and figures
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
