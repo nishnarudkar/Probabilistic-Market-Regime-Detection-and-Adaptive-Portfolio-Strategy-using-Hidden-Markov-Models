@@ -16,6 +16,16 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("modelInfoBtn").addEventListener("click", toggleModelInfo);
     document.getElementById("userGuideBtn").addEventListener("click", toggleUserGuide);
     document.getElementById("exportPdfBtn").addEventListener("click", exportPdf);
+    document.getElementById("downloadCsvBtn").addEventListener("click", downloadCsv);
+    document.getElementById("plotsToggle").addEventListener("click", togglePlots);
+
+    // Keyboard shortcut: Enter in manual form submits it
+    document.getElementById("tab-manual").addEventListener("keydown", e => {
+        if (e.key === "Enter") runManualCheck();
+    });
+
+    // Restore last manual input from localStorage
+    restoreManualInputs();
 });
 
 // ── Dark Mode ─────────────────────────────────────────────────────────────────
@@ -177,6 +187,7 @@ async function runManualCheck() {
     }
 
     const payload = Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, parseFloat(v)]));
+    saveManualInputs();
     setLoading(true, "manualCheckBtn", "Checking...", "Check Market Signal");
     statusBox.innerText = "Running HMM prediction...";
     statusBox.className = "status-box";
@@ -199,6 +210,62 @@ async function runManualCheck() {
         statusBox.className = "status-box risk";
     } finally {
         setLoading(false, "manualCheckBtn", "Checking...", "Check Market Signal");
+    }
+}
+
+// ── Persist & Restore Manual Inputs ──────────────────────────────────────────
+
+function saveManualInputs() {
+    const vals = {
+        f_returns:    document.getElementById("f_returns").value,
+        f_volatility: document.getElementById("f_volatility").value,
+        f_rsi:        document.getElementById("f_rsi").value,
+        f_momentum:   document.getElementById("f_momentum").value,
+        f_vix:        document.getElementById("f_vix").value,
+    };
+    localStorage.setItem("manualInputs", JSON.stringify(vals));
+}
+
+function restoreManualInputs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem("manualInputs"));
+        if (!saved) return;
+        Object.entries(saved).forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (el && val) el.value = val;
+        });
+    } catch { /* ignore */ }
+}
+
+// ── Collapsible Plots ─────────────────────────────────────────────────────────
+
+function togglePlots() {
+    const grid = document.getElementById("plotsGrid");
+    const icon = document.getElementById("plotsToggleIcon");
+    const collapsed = grid.classList.toggle("hidden");
+    icon.innerText = collapsed ? "▶" : "▼";
+}
+
+// ── Download CSV ──────────────────────────────────────────────────────────────
+
+async function downloadCsv() {
+    const fileInput = document.getElementById("csvFileInput");
+    if (fileInput.files.length === 0) {
+        alert("Please select a CSV file first, then download.");
+        return;
+    }
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    try {
+        const res = await fetch(`${API_BASE}/api/download-csv`, { method: "POST", body: formData });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href = url; a.download = "market_data_with_regimes.csv"; a.click();
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        alert(`Download failed: ${err.message}`);
     }
 }
 
@@ -266,7 +333,8 @@ async function runWhatIf() {
         const data = await res.json();
         const safe = data.current_status.includes("Safe");
         box.className = `whatif-result ${safe ? "safe" : "risk"}`;
-        box.innerText = `Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}`;
+        const conf = data.confidence != null ? ` | Confidence: ${data.confidence}%` : "";
+        box.innerText = `Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${conf}`;
     } catch (err) {
         box.className = "whatif-result risk";
         box.innerText = `Error: ${err.message}`;
@@ -284,7 +352,8 @@ function resetDashboard() {
     document.getElementById("vixChart").innerHTML = "";
     document.getElementById("interpretation").classList.add("hidden");
     document.getElementById("exportBar").classList.add("hidden");
-    document.getElementById("lastAnalyzed").classList.add("hidden");
+    document.getElementById("transitionWarning").classList.add("hidden");
+    document.getElementById("summaryStats").classList.add("hidden");
     _lastCsvData = null;
 }
 
@@ -292,8 +361,14 @@ function resetDashboard() {
 
 function updateDashboard(data, hasChart) {
     const statusBox = document.getElementById("statusIndicator");
-    statusBox.innerText = `AI Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}`;
+    const confidenceStr = data.confidence != null ? ` | Confidence: ${data.confidence}%` : "";
+    statusBox.innerText = `AI Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${confidenceStr}`;
     statusBox.className = data.current_status.includes("Safe") ? "status-box safe" : "status-box risk";
+
+    // Transition warning
+    const tw = document.getElementById("transitionWarning");
+    if (data.transition_warning) tw.classList.remove("hidden");
+    else tw.classList.add("hidden");
 
     if (data.analyzed_at) {
         const ts = document.getElementById("lastAnalyzed");
@@ -304,11 +379,13 @@ function updateDashboard(data, hasChart) {
     renderRegimeLegend(data.regime_legend, data.current_regime_id);
 
     if (hasChart && data.chart_data) {
+        renderSummaryStats(data);
         renderChart(data);
         renderVixChart(data);
         renderInterpretation(data);
         document.getElementById("exportBar").classList.remove("hidden");
     } else {
+        document.getElementById("summaryStats").classList.add("hidden");
         document.getElementById("chart").innerHTML = "";
         document.getElementById("vixChart").innerHTML = "";
         document.getElementById("interpretation").classList.add("hidden");
@@ -335,6 +412,27 @@ function renderRegimeLegend(legend, currentRegime) {
     });
 }
 
+// ── Summary Stats ─────────────────────────────────────────────────────────────
+
+function renderSummaryStats(data) {
+    const box = document.getElementById("summaryStats");
+    const s   = data.summary;
+    if (!s) return;
+
+    const riskiest = s.riskiest_period
+        ? `${s.riskiest_period.days} days (${s.riskiest_period.start_date} → ${s.riskiest_period.end_date})`
+        : "None";
+
+    box.innerHTML = `
+        <div class="stat-card"><span class="stat-label">Total Rows</span><span class="stat-value">${s.total_rows.toLocaleString()}</span></div>
+        <div class="stat-card"><span class="stat-label">Date Range</span><span class="stat-value">${s.date_range}</span></div>
+        <div class="stat-card safe-stat"><span class="stat-label">Time in Safe Regime</span><span class="stat-value">${s.safe_pct}%</span></div>
+        <div class="stat-card risk-stat"><span class="stat-label">Time in High Risk</span><span class="stat-value">${s.risk_pct}%</span></div>
+        <div class="stat-card risk-stat"><span class="stat-label">Longest Risk Streak</span><span class="stat-value">${riskiest}</span></div>
+    `;
+    box.classList.remove("hidden");
+}
+
 // ── Price Chart ───────────────────────────────────────────────────────────────
 
 const COLORS = ["#2196F3", "#4CAF50", "#FF9800", "#E91E63", "#9C27B0", "#00BCD4"];
@@ -355,10 +453,24 @@ function renderChart(data) {
         };
     });
 
+    // Shade riskiest period if available
+    const shapes = [];
+    if (data.summary?.riskiest_period?.days > 0) {
+        shapes.push({
+            type: "rect", xref: "x", yref: "paper",
+            x0: data.summary.riskiest_period.start_date,
+            x1: data.summary.riskiest_period.end_date,
+            y0: 0, y1: 1,
+            fillcolor: "rgba(231,76,60,0.12)",
+            line: { width: 1, color: "rgba(231,76,60,0.4)" },
+        });
+    }
+
     Plotly.newPlot("chart", traces, {
         title: `S&P 500 — Last ${data.chart_data.dates.length} Trading Days (Colored by Regime)`,
         xaxis: { title: "Date" }, yaxis: { title: "Price" },
         hovermode: "closest", legend: { orientation: "h", y: -0.2 },
+        shapes,
     }, { responsive: true });
 }
 

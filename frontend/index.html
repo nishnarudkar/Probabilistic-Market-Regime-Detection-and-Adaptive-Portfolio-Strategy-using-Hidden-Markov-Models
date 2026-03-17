@@ -159,7 +159,12 @@
         <!-- Shared output -->
         <div id="statusIndicator" class="status-box">Awaiting Data...</div>
         <div id="lastAnalyzed" class="last-analyzed hidden"></div>
+        <div id="transitionWarning" class="transition-warning hidden">⚠️ Regime transition in progress — signal may be unstable</div>
         <div id="spinner" class="spinner hidden"></div>
+
+        <!-- Summary Stats -->
+        <div id="summaryStats" class="summary-stats hidden"></div>
+
         <div id="regimeLegend" class="regime-legend hidden"></div>
 
         <!-- Charts -->
@@ -168,6 +173,7 @@
 
         <!-- Export button (shown after CSV analysis) -->
         <div id="exportBar" class="export-bar hidden">
+            <button id="downloadCsvBtn" class="btn-secondary">⬇ Download CSV with Regimes</button>
             <button id="exportPdfBtn" class="btn-secondary">⬇ Export Report as PDF</button>
         </div>
 
@@ -176,7 +182,10 @@
 
         <!-- Analysis Plots -->
         <div id="plotsSection" class="plots-section hidden">
-            <h2>Training Analysis Plots</h2>
+            <div class="plots-header" id="plotsToggle">
+                <h2 style="margin:0">Training Analysis Plots</h2>
+                <span id="plotsToggleIcon">▼</span>
+            </div>
             <div id="plotsGrid" class="plots-grid"></div>
         </div>
     </div>

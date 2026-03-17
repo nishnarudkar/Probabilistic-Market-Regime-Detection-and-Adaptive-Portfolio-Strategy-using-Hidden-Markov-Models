@@ -1,0 +1,51 @@
+name: Validate Model & Backend
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate sample data
+        run: python data/generate_sample.py
+
+      - name: Train model on sample data
+        run: |
+          # Point train.py at sample data for CI
+          sed 's|data/processed_market_data.csv|data/sample_data.csv|' src/train.py > /tmp/train_ci.py
+          python /tmp/train_ci.py
+
+      - name: Validate model artifacts exist
+        run: |
+          python -c "
+          import os, sys
+          for f in ['outputs/models/hmm_model.pkl', 'outputs/models/scaler.pkl', 'outputs/models/model_metadata.json']:
+              if not os.path.exists(f):
+                  print(f'MISSING: {f}')
+                  sys.exit(1)
+              print(f'OK: {f}')
+          "
+
+      - name: Validate backend starts
+        run: |
+          python -c "
+          from backend.main import app, model, scaler
+          assert model is not None, 'Model failed to load'
+          assert scaler is not None, 'Scaler failed to load'
+          print('Backend imports OK, model loaded')
+          "

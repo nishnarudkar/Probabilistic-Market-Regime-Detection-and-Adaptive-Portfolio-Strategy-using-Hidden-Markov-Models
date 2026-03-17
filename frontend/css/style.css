@@ -200,3 +200,87 @@ input[type="range"] { width: 100%; accent-color: var(--primary); }
 
 .guide-table .safe-row td { background: rgba(212, 237, 218, 0.3); }
 .guide-table .risk-row td { background: rgba(248, 215, 218, 0.3); }
+
+/* ── Transition Warning ── */
+.transition-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+/* ── Summary Stats ── */
+.summary-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat-card {
+    flex: 1 1 160px;
+    background: var(--interp-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-label { font-size: 0.75em; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-size: 1em; font-weight: 700; color: var(--text); }
+.safe-stat { border-left: 3px solid #28a745; }
+.risk-stat { border-left: 3px solid #dc3545; }
+
+/* ── Collapsible Plots Header ── */
+.plots-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 8px 0;
+    user-select: none;
+}
+.plots-header:hover h2 { color: var(--primary-dk); }
+#plotsToggleIcon { font-size: 0.85em; color: var(--text-muted); }
+
+/* ── Mobile Responsiveness ── */
+@media (max-width: 640px) {
+    body { padding: 16px; }
+
+    .container { padding: 16px; }
+
+    .header-top { flex-direction: column; gap: 10px; }
+    .header-actions { flex-wrap: wrap; }
+
+    h1 { font-size: 1.3em; }
+
+    .upload-section { flex-direction: column; align-items: stretch; }
+    .upload-section button { width: 100%; }
+    input[type="file"] { width: 100%; box-sizing: border-box; }
+
+    .form-grid { grid-template-columns: 1fr 1fr; }
+
+    .manual-actions { flex-direction: column; }
+    .manual-actions button { width: 100%; }
+
+    .slider-grid { grid-template-columns: 1fr; }
+
+    .summary-stats { flex-direction: column; }
+
+    .tabs { overflow-x: auto; }
+
+    #chart { height: 320px; }
+
+    .guide-table { font-size: 0.75em; }
+    .guide-table th, .guide-table td { padding: 4px 6px; }
+
+    .export-bar { flex-direction: column; gap: 8px; }
+    .export-bar button { width: 100%; }
+}

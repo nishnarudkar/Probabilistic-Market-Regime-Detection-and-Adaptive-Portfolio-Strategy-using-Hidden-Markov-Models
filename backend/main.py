@@ -132,6 +132,18 @@ async def get_market_status(
         raise HTTPException(status_code=400, detail=f"Could not parse CSV: {e}")
 
     required = ["Date", "Close"] + FEATURES
+    # Auto-map common column name variants
+    col_map = {}
+    for required_col in required:
+        if required_col not in data.columns:
+            # try case-insensitive match
+            match = next((c for c in data.columns if c.lower() == required_col.lower()), None)
+            if match:
+                col_map[match] = required_col
+    if col_map:
+        data = data.rename(columns=col_map)
+        logger.info(f"Auto-mapped columns: {col_map}")
+
     missing  = [c for c in required if c not in data.columns]
     if missing:
         raise HTTPException(status_code=400, detail=f"CSV missing columns: {missing}")
@@ -143,15 +155,54 @@ async def get_market_status(
     status_message  = "Safe to Invest (Bull/Calm Market)" if is_safe else "High Risk (Move to Cash)"
     recent          = data.tail(days)
 
-    logger.info(f"Regime: {current_regime}, Status: {status_message}")
+    # Confidence: posterior probability of current regime for last row
+    posteriors     = model.predict_proba(scaler.transform(data[FEATURES]))
+    confidence     = round(float(posteriors[-1][current_regime]) * 100, 1)
+
+    # Transition warning: check last 5 rows for regime instability
+    last_regimes   = data["Regime"].iloc[-5:].tolist()
+    unique_recent  = len(set(last_regimes))
+    transition_warning = unique_recent >= 3
+
+    # Summary stats
+    total_rows  = len(data)
+    safe_pct    = round(data["Regime"].isin(safe).sum() / total_rows * 100, 1)
+    risk_pct    = round(100 - safe_pct, 1)
+    date_range  = f"{data['Date'].iloc[0]} to {data['Date'].iloc[-1]}"
+
+    # Riskiest period: longest consecutive high-risk stretch
+    data["is_risk"] = (~data["Regime"].isin(safe)).astype(int)
+    max_streak, cur_streak, streak_end = 0, 0, 0
+    for i, v in enumerate(data["is_risk"]):
+        cur_streak = cur_streak + 1 if v else 0
+        if cur_streak > max_streak:
+            max_streak = cur_streak
+            streak_end = i
+    streak_start_idx = streak_end - max_streak + 1
+    riskiest_period  = {
+        "days":       max_streak,
+        "start_date": str(data["Date"].iloc[streak_start_idx]),
+        "end_date":   str(data["Date"].iloc[streak_end]),
+    } if max_streak > 0 else None
+
+    logger.info(f"Regime: {current_regime}, Status: {status_message}, Confidence: {confidence}%")
 
     result = {
-        "current_status":    status_message,
-        "current_regime_id": current_regime,
-        "latest_vix":        float(recent["VIX"].iloc[-1]),
-        "n_regimes":         model.n_components,
-        "regime_legend":     legend,
-        "analyzed_at":       datetime.utcnow().isoformat() + "Z",
+        "current_status":      status_message,
+        "current_regime_id":   current_regime,
+        "confidence":          confidence,
+        "transition_warning":  transition_warning,
+        "latest_vix":          float(recent["VIX"].iloc[-1]),
+        "n_regimes":           model.n_components,
+        "regime_legend":       legend,
+        "analyzed_at":         datetime.utcnow().isoformat() + "Z",
+        "summary": {
+            "total_rows":      total_rows,
+            "date_range":      date_range,
+            "safe_pct":        safe_pct,
+            "risk_pct":        risk_pct,
+            "riskiest_period": riskiest_period,
+        },
         "chart_data": {
             "dates":   recent["Date"].tolist(),
             "prices":  recent["Close"].tolist(),
@@ -171,6 +222,47 @@ def get_last_result():
     if _last_result_cache is None:
         raise HTTPException(status_code=404, detail="No analysis has been run yet.")
     return _last_result_cache
+
+
+# ── Download CSV with Regime Labels ──────────────────────────────────────────
+
+@app.post("/api/download-csv")
+async def download_csv(file: UploadFile = File(...)):
+    """Returns the uploaded CSV with a Regime column appended."""
+    if model is None or scaler is None:
+        raise HTTPException(status_code=503, detail="Model not loaded.")
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
+
+    contents = await file.read()
+    data = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+
+    required = ["Date", "Close"] + FEATURES
+    col_map  = {}
+    for c in required:
+        if c not in data.columns:
+            match = next((x for x in data.columns if x.lower() == c.lower()), None)
+            if match:
+                col_map[match] = c
+    if col_map:
+        data = data.rename(columns=col_map)
+
+    missing = [c for c in required if c not in data.columns]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"CSV missing columns: {missing}")
+
+    data["Regime"] = model.predict(scaler.transform(data[FEATURES]))
+    safe, legend   = _classify_regimes(data)
+    data["Regime_Label"] = data["Regime"].map(lambda r: legend[r]["label"])
+
+    output = io.StringIO()
+    data.to_csv(output, index=False)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=market_data_with_regimes.csv"},
+    )
 
 
 # ── Manual Single Check ───────────────────────────────────────────────────────
@@ -198,14 +290,17 @@ def manual_check(payload: ManualInput):
     )
     sequence  = np.vstack([warmup, user_row])
     regime    = int(model.predict(sequence)[-1])
+    posteriors = model.predict_proba(sequence)
+    confidence = round(float(posteriors[-1][regime]) * 100, 1)
 
     safe, legend = _classify_regimes_from_means()
     is_safe = regime in safe
     status  = "Safe to Invest (Bull/Calm Market)" if is_safe else "High Risk (Move to Cash)"
-    logger.info(f"Manual check — regime: {regime}, status: {status}")
+    logger.info(f"Manual check — regime: {regime}, confidence: {confidence}%, status: {status}")
     return {
         "current_status":    status,
         "current_regime_id": regime,
+        "confidence":        confidence,
         "latest_vix":        payload.VIX,
         "n_regimes":         model.n_components,
         "regime_legend":     legend,
