@@ -333,8 +333,13 @@ async function runWhatIf() {
         const data = await res.json();
         const safe = data.current_status.includes("Safe");
         box.className = `whatif-result ${safe ? "safe" : "risk"}`;
-        const conf = data.confidence != null ? ` | Confidence: ${data.confidence}%` : "";
-        box.innerText = `Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${conf}`;
+        let confLabel = "";
+        if (data.confidence != null) {
+            const c = data.confidence;
+            const cls = c >= 70 ? "conf-high" : c >= 40 ? "conf-medium" : "conf-low";
+            confLabel = ` | Confidence: <span class="${cls}">${c}%</span>`;
+        }
+        box.innerHTML = `Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${confLabel}`;
     } catch (err) {
         box.className = "whatif-result risk";
         box.innerText = `Error: ${err.message}`;
@@ -361,14 +366,27 @@ function resetDashboard() {
 
 function updateDashboard(data, hasChart) {
     const statusBox = document.getElementById("statusIndicator");
-    const confidenceStr = data.confidence != null ? ` | Confidence: ${data.confidence}%` : "";
-    statusBox.innerText = `AI Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${confidenceStr}`;
+    // Build confidence label with color class
+    let confidenceStr = "";
+    let confClass = "";
+    if (data.confidence != null) {
+        const c = data.confidence;
+        confClass = c >= 70 ? "conf-high" : c >= 40 ? "conf-medium" : "conf-low";
+        confidenceStr = ` | Confidence: <span class="${confClass}">${c}%</span>`;
+    }
+
+    statusBox.innerHTML = `AI Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}${confidenceStr}`;
     statusBox.className = data.current_status.includes("Safe") ? "status-box safe" : "status-box risk";
 
     // Transition warning
     const tw = document.getElementById("transitionWarning");
     if (data.transition_warning) tw.classList.remove("hidden");
     else tw.classList.add("hidden");
+
+    // Confidence warning
+    const cw = document.getElementById("confidenceWarning");
+    if (data.confidence != null && data.confidence < 40) cw.classList.remove("hidden");
+    else cw.classList.add("hidden");
 
     if (data.analyzed_at) {
         const ts = document.getElementById("lastAnalyzed");
@@ -453,17 +471,23 @@ function renderChart(data) {
         };
     });
 
-    // Shade riskiest period if available
+    // Shade riskiest period only if it overlaps with the visible date window
     const shapes = [];
     if (data.summary?.riskiest_period?.days > 0) {
-        shapes.push({
-            type: "rect", xref: "x", yref: "paper",
-            x0: data.summary.riskiest_period.start_date,
-            x1: data.summary.riskiest_period.end_date,
-            y0: 0, y1: 1,
-            fillcolor: "rgba(231,76,60,0.12)",
-            line: { width: 1, color: "rgba(231,76,60,0.4)" },
-        });
+        const visibleStart = data.chart_data.dates[0];
+        const visibleEnd   = data.chart_data.dates[data.chart_data.dates.length - 1];
+        const rStart = data.summary.riskiest_period.start_date;
+        const rEnd   = data.summary.riskiest_period.end_date;
+        if (rEnd >= visibleStart && rStart <= visibleEnd) {
+            shapes.push({
+                type: "rect", xref: "x", yref: "paper",
+                x0: rStart < visibleStart ? visibleStart : rStart,
+                x1: rEnd   > visibleEnd   ? visibleEnd   : rEnd,
+                y0: 0, y1: 1,
+                fillcolor: "rgba(231,76,60,0.12)",
+                line: { width: 1, color: "rgba(231,76,60,0.4)" },
+            });
+        }
     }
 
     Plotly.newPlot("chart", traces, {

@@ -214,6 +214,24 @@ input[type="range"] { width: 100%; accent-color: var(--primary); }
     text-align: center;
 }
 
+/* ── Confidence Warning ── */
+.confidence-warning {
+    background: #fff0e0;
+    color: #7a4100;
+    border: 1px solid #f0a040;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 0.9em;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+/* ── Confidence color labels ── */
+.conf-high   { color: #155724; font-weight: 700; }
+.conf-medium { color: #856404; font-weight: 700; }
+.conf-low    { color: #721c24; font-weight: 700; }
+
 /* ── Summary Stats ── */
 .summary-stats {
     display: flex;
