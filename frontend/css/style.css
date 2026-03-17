@@ -172,3 +172,31 @@ input[type="range"] { width: 100%; accent-color: var(--primary); }
 .plot-card p { margin: 0; padding: 8px 12px; font-size: 0.8em; font-weight: 600; color: var(--text-muted); text-transform: capitalize; border-bottom: 1px solid var(--border); background: var(--interp-bg); }
 .plot-card img { width: 100%; display: block; cursor: zoom-in; transition: transform 0.2s; }
 .plot-card img:hover { transform: scale(1.02); }
+
+/* ── User Guide Table ── */
+.info-panel hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+.info-panel p  { margin: 8px 0; }
+
+.guide-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85em;
+    margin-top: 10px;
+}
+
+.guide-table th {
+    background: var(--interp-bg);
+    padding: 7px 10px;
+    text-align: left;
+    border: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.guide-table td {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+}
+
+.guide-table .safe-row td { background: rgba(212, 237, 218, 0.3); }
+.guide-table .risk-row td { background: rgba(248, 215, 218, 0.3); }

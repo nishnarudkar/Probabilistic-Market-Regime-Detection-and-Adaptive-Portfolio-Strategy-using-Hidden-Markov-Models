@@ -24,12 +24,52 @@
                 <div class="header-actions">
                     <button id="darkModeBtn" class="btn-icon" title="Toggle dark mode">🌙</button>
                     <button id="modelInfoBtn" class="btn-secondary btn-sm">Model Info</button>
+                    <button id="userGuideBtn" class="btn-secondary btn-sm">User Guide</button>
                 </div>
             </div>
         </header>
 
         <!-- Model Info Panel -->
         <div id="modelInfoPanel" class="info-panel hidden"></div>
+
+        <!-- User Guide Panel -->
+        <div id="userGuidePanel" class="info-panel hidden">
+            <strong>User Guide</strong>
+
+            <p><b>CSV Upload tab</b> — Upload your processed market data CSV and click "Analyze Market Data". The model will classify every row into a regime and show the current signal for the latest date. Use the "Days to display" input to control how many recent trading days appear on the chart.</p>
+
+            <p><b>Manual Input tab</b> — Enter a single set of market conditions and click "Check Market Signal" to get an instant regime prediction. Use "Load Default Values" to pre-fill typical calm market values for experimentation.</p>
+
+            <p><b>What-If Explorer</b> — Appears after you submit the manual form. Drag the sliders to tweak values and see the signal update in real time without re-submitting. Useful for finding the boundary where the market flips from safe to risky.</p>
+
+            <hr>
+
+            <strong>What each feature means</strong>
+            <ul>
+                <li><b>Returns</b> — The daily percentage change in price (e.g. 0.012 = +1.2%, -0.05 = -5%). Negative values indicate a falling market.</li>
+                <li><b>Volatility</b> — Rolling standard deviation of returns over ~20 days. Low values (~0.005) = calm, high values (~0.04+) = turbulent.</li>
+                <li><b>RSI</b> — Relative Strength Index (0–100). Below 30 = oversold/bearish, above 70 = overbought/bullish, ~50 = neutral.</li>
+                <li><b>Momentum</b> — 10-day price change in points (not percentage). Positive = uptrend, negative = downtrend. Typical range in this dataset: -300 to +300.</li>
+                <li><b>VIX</b> — CBOE Volatility Index, the market's "fear gauge". Below 15 = calm, 15–25 = normal, 25–35 = elevated stress, 35+ = crisis.</li>
+            </ul>
+
+            <hr>
+
+            <strong>Value combinations that trigger each regime</strong>
+            <table class="guide-table">
+                <thead><tr><th>Scenario</th><th>Returns</th><th>Volatility</th><th>RSI</th><th>Momentum</th><th>VIX</th><th>Expected</th></tr></thead>
+                <tbody>
+                    <tr class="safe-row"><td>Calm bull market</td><td>0.001</td><td>0.006</td><td>60</td><td>20</td><td>13</td><td>✅ Safe</td></tr>
+                    <tr class="safe-row"><td>Quiet sideways</td><td>0.0</td><td>0.007</td><td>50</td><td>0</td><td>16</td><td>✅ Safe</td></tr>
+                    <tr><td>Mild stress</td><td>-0.01</td><td>0.015</td><td>42</td><td>-30</td><td>22</td><td>⚠️ Borderline</td></tr>
+                    <tr class="risk-row"><td>Market stress</td><td>-0.03</td><td>0.03</td><td>35</td><td>-100</td><td>30</td><td>🔴 High Risk</td></tr>
+                    <tr class="risk-row"><td>Crisis / crash</td><td>-0.05</td><td>0.04</td><td>28</td><td>-200</td><td>45</td><td>🔴 High Risk</td></tr>
+                    <tr class="risk-row"><td>Extreme crash</td><td>-0.08</td><td>0.06</td><td>22</td><td>-400</td><td>60</td><td>🔴 High Risk</td></tr>
+                </tbody>
+            </table>
+
+            <p style="font-size:0.82em; color: var(--text-muted); margin-top: 12px;">Note: The HMM uses all 5 features together — no single feature alone determines the regime. VIX and Volatility are the strongest drivers in this model.</p>
+        </div>
 
         <!-- Tabs -->
         <div class="tabs">
@@ -92,11 +132,11 @@
                     <div class="slider-grid">
                         <div class="slider-group">
                             <label>Returns: <span id="sl_returns_val">0.0012</span></label>
-                            <input type="range" id="sl_returns" min="-0.1" max="0.1" step="0.0001" value="0.0012">
+                            <input type="range" id="sl_returns" min="-0.15" max="0.15" step="0.001" value="0.0012">
                         </div>
                         <div class="slider-group">
                             <label>Volatility: <span id="sl_volatility_val">0.0085</span></label>
-                            <input type="range" id="sl_volatility" min="0" max="0.1" step="0.0001" value="0.0085">
+                            <input type="range" id="sl_volatility" min="0" max="0.2" step="0.001" value="0.0085">
                         </div>
                         <div class="slider-group">
                             <label>RSI: <span id="sl_rsi_val">58.4</span></label>
@@ -104,7 +144,7 @@
                         </div>
                         <div class="slider-group">
                             <label>Momentum: <span id="sl_momentum_val">0.032</span></label>
-                            <input type="range" id="sl_momentum" min="-0.5" max="0.5" step="0.001" value="0.032">
+                            <input type="range" id="sl_momentum" min="-300" max="300" step="0.1" value="0.032">
                         </div>
                         <div class="slider-group">
                             <label>VIX: <span id="sl_vix_val">16.5</span></label>

@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("manualCheckBtn").addEventListener("click", runManualCheck);
     document.getElementById("loadDefaultsBtn").addEventListener("click", loadDefaultValues);
     document.getElementById("modelInfoBtn").addEventListener("click", toggleModelInfo);
+    document.getElementById("userGuideBtn").addEventListener("click", toggleUserGuide);
     document.getElementById("exportPdfBtn").addEventListener("click", exportPdf);
 });
 
@@ -76,10 +77,21 @@ async function restoreLastResult() {
     } catch { /* no cached result */ }
 }
 
+// ── User Guide ────────────────────────────────────────────────────────────────
+
+function toggleUserGuide() {
+    const panel = document.getElementById("userGuidePanel");
+    const modelPanel = document.getElementById("modelInfoPanel");
+    modelPanel.classList.add("hidden"); // close model info if open
+    panel.classList.toggle("hidden");
+}
+
 // ── Model Info ────────────────────────────────────────────────────────────────
 
 async function toggleModelInfo() {
     const panel = document.getElementById("modelInfoPanel");
+    const guidePanel = document.getElementById("userGuidePanel");
+    guidePanel.classList.add("hidden"); // close user guide if open
     if (!panel.classList.contains("hidden")) {
         panel.classList.add("hidden");
         return;
@@ -240,18 +252,25 @@ async function runWhatIf() {
         VIX:        parseFloat(document.getElementById("sl_vix").value),
     };
 
+    const box = document.getElementById("whatIfResult");
     try {
         const res  = await fetch(`${API_BASE}/api/manual-check`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
         });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Server error");
+        }
         const data = await res.json();
-        const box  = document.getElementById("whatIfResult");
         const safe = data.current_status.includes("Safe");
         box.className = `whatif-result ${safe ? "safe" : "risk"}`;
         box.innerText = `Signal: ${data.current_status} | Regime: ${data.current_regime_id} | VIX: ${data.latest_vix.toFixed(2)}`;
-    } catch { /* silent */ }
+    } catch (err) {
+        box.className = "whatif-result risk";
+        box.innerText = `Error: ${err.message}`;
+    }
 }
 
 // ── Reset ─────────────────────────────────────────────────────────────────────

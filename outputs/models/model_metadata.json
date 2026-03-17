@@ -1,0 +1,15 @@
+{
+  "trained_at": "2026-03-17T18:41:14.377550Z",
+  "n_components": 6,
+  "covariance_type": "full",
+  "dataset_rows": 2342,
+  "date_range": "2015-03-05 to 2024-06-24",
+  "features": [
+    "returns",
+    "volatility",
+    "RSI",
+    "momentum",
+    "VIX"
+  ],
+  "train_split": "80/20"
+}

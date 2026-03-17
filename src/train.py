@@ -184,7 +184,7 @@ def generate_plots(data: pd.DataFrame, model: GaussianHMM):
 def backtest(data: pd.DataFrame, model: GaussianHMM):
     logger.info("Backtesting regime-aware strategy...")
     regime_risk = data.groupby("Regime")["VIX"].mean().sort_values()
-    safe_regimes = regime_risk.head(max(1, model.n_components // 2 + 1)).index.tolist()
+    safe_regimes = regime_risk.head(max(1, model.n_components // 2)).index.tolist()
 
     data["signal"] = 0
     data.loc[data["Regime"].isin(safe_regimes), "signal"] = 1

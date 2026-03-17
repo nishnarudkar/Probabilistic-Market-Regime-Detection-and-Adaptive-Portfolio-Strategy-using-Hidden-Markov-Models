@@ -51,7 +51,7 @@ except FileNotFoundError:
 def _classify_regimes(data: pd.DataFrame):
     regime_risk  = data.groupby("Regime")["VIX"].mean().sort_values()
     n            = model.n_components
-    safe_regimes = regime_risk.head(max(1, n // 2 + 1)).index.tolist()
+    safe_regimes = regime_risk.head(max(1, n // 2)).index.tolist()
     legend = {
         int(rid): {"label": "Low Risk" if rid in safe_regimes else "High Risk",
                    "avg_vix": round(float(vix), 2)}
@@ -62,12 +62,16 @@ def _classify_regimes(data: pd.DataFrame):
 
 def _classify_regimes_from_means():
     vix_idx = FEATURES.index("VIX")
-    means   = {i: float(model.means_[i][vix_idx]) for i in range(model.n_components)}
-    sorted_ = sorted(means, key=lambda r: means[r])
-    safe    = sorted_[: max(1, model.n_components // 2 + 1)]
-    legend  = {i: {"label": "Low Risk" if i in safe else "High Risk",
-                   "avg_vix": round(means[i], 2)}
-               for i in range(model.n_components)}
+    # Unscale the model means back to raw VIX for readable display
+    means_scaled = {i: float(model.means_[i][vix_idx]) for i in range(model.n_components)}
+    means_raw    = {i: round(v * float(scaler.scale_[vix_idx]) + float(scaler.mean_[vix_idx]), 2)
+                    for i, v in means_scaled.items()}
+    sorted_      = sorted(means_scaled, key=lambda r: means_scaled[r])
+    n_safe       = max(1, model.n_components // 2)
+    safe         = sorted_[:n_safe]
+    legend       = {i: {"label": "Low Risk" if i in safe else "High Risk",
+                        "avg_vix": means_raw[i]}
+                    for i in range(model.n_components)}
     return safe, legend
 
 
@@ -184,12 +188,20 @@ def manual_check(payload: ManualInput):
     if model is None or scaler is None:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    row    = np.array([[payload.returns, payload.volatility, payload.RSI, payload.momentum, payload.VIX]])
-    regime = int(model.predict(scaler.transform(row))[0])
+    # HMMs need sequence context to make meaningful predictions.
+    # Prepend neutral warm-up rows (model's average state in scaled space)
+    # so Viterbi has history before evaluating the user's single point.
+    n_warmup  = 30
+    warmup    = np.tile(model.means_.mean(axis=0), (n_warmup, 1))
+    user_row  = scaler.transform(
+        np.array([[payload.returns, payload.volatility, payload.RSI, payload.momentum, payload.VIX]])
+    )
+    sequence  = np.vstack([warmup, user_row])
+    regime    = int(model.predict(sequence)[-1])
+
     safe, legend = _classify_regimes_from_means()
     is_safe = regime in safe
     status  = "Safe to Invest (Bull/Calm Market)" if is_safe else "High Risk (Move to Cash)"
-
     logger.info(f"Manual check — regime: {regime}, status: {status}")
     return {
         "current_status":    status,
