@@ -23,7 +23,7 @@ os.makedirs("outputs/figures", exist_ok=True)
 # ==========================================
 print("Loading processed data...")
 # Adjust this path if your CSV is in a different location
-data = pd.read_csv("data/processed/processed_market_data.csv")
+data = pd.read_csv("data/processed_market_data.csv")
 data["Date"] = pd.to_datetime(data["Date"])
 data = data.sort_values("Date").reset_index(drop=True)
 
